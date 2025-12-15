@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Letterboxd Toolkit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <img src="icon.png" alt="App Logo" class="app-logo">
+                <h1>LB Unfollower Toolkit</h1>
+            </div>
+        </header>
+
+        <main>
+            <div id="search-view">
+                <div class="input-group">
+                    <label for="username">Letterboxd Username</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="username" placeholder="username" autocomplete="off">
+                    </div>
+                </div>
+                
+                <button id="checkBtn" class="btn btn-primary">
+                    <span class="btn-text">Check Connections</span>
+                </button>
+            </div>
+            
+            <div id="status" class="status-message"></div>
+            
+            <div id="results-view" class="hidden">
+                <div class="results-header">
+                    <h3>Not Following Back</h3>
+                    <span class="badge" id="count">0</span>
+                </div>
+                
+                <div class="list-wrapper">
+                    <ul id="list" class="user-list"></ul>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="downloadBtn" class="btn btn-secondary">
+                        Download List (.txt)
+                    </button>
+                    <button id="resetBtn" class="btn btn-danger">
+                        New Search
+                    </button>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <span class="support-text">Want to support my work?</span>
+            
+            <a href="https://www.buymeacoffee.com/serkansahinoglu" target="_blank" class="donate-btn">
+                <span>☕</span> Buy me a Coffee
+            </a>
+            
+            <p class="warning">⚠️ Keep this window open during analysis.</p>
+        </footer>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

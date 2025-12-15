@@ -1,0 +1,298 @@
+/* --- Global Değişkenler ve Ayarlar --- */
+:root {
+    --bg-main: #14181c;
+    --bg-card: #1f262d;
+    --bg-hover: #2c3440;
+    --brand-green: #00e054;
+    --brand-orange: #ff8000;
+    --text-primary: #ffffff;
+    --text-secondary: #9ab;
+    --danger: #ff4f4f;
+    --border-radius: 8px;
+    --transition-speed: 0.2s;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    width: 360px;
+    background-color: var(--bg-main);
+    color: var(--text-secondary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* --- Ana Konteyner ve Header --- */
+.app-container {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* GÜNCELLENEN KISIM BURASI */
+.header-content {
+    display: flex;
+    align-items: center; /* Dikeyde ortala */
+    justify-content: flex-start; /* <-- DEĞİŞTİ: 'center' yerine 'flex-start' yaparak sola yasladık */
+    gap: 12px; /* Logo ile yazı arasındaki boşluk */
+    margin-bottom: 10px;
+    /* İsterseniz ana çerçeveye daha yakın olması için negatif margin verebilirsiniz, örneğin: */
+    /* margin-left: -5px; */
+}
+
+/* Logo boyutu ayarı */
+.app-logo {
+    height: 80px;
+    width: auto;
+}
+
+/* --- style.css içinde bu bloğu bul ve değiştir --- */
+
+.app-header h1 {
+    color: var(--text-primary);
+    font-family: 'Poppins', sans-serif; /* Yeni Font */
+    font-size: 19px;                    /* Biraz büyüttük */
+    font-weight: 700;                   /* Kalın */
+    letter-spacing: 0.5px;              /* Harf aralığı */
+    margin: 0;
+    
+    /* İsteğe bağlı: Hafif bir parlama efekti premium hissettirir */
+    text-shadow: 0 2px 4px rgba(0,0,0, 0.3); 
+}
+/* --- Form Elemanları --- */
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.input-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.input-wrapper {
+    position: relative;
+}
+
+input[type="text"] {
+    width: 100%;
+    padding: 12px 16px;
+    background-color: var(--bg-card);
+    border: 2px solid transparent;
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    font-size: 14px;
+    transition: all var(--transition-speed) ease;
+    outline: none;
+}
+
+input[type="text"]::placeholder {
+    color: #567;
+}
+
+/* Input odaklanma efekti */
+input[type="text"]:focus {
+    background-color: #181f26;
+    border-color: var(--brand-green);
+    box-shadow: 0 0 0 3px rgba(0, 224, 84, 0.15);
+}
+
+/* --- Butonlar --- */
+.btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: var(--border-radius);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition-speed) ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.btn-primary {
+    background-color: var(--brand-green);
+    color: #003815; 
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #00c030;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid #344;
+}
+
+.btn-secondary:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.btn-danger {
+    background-color: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    margin-top: 8px;
+}
+
+.btn-danger:hover {
+    background-color: var(--danger);
+    color: white;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    filter: grayscale(50%);
+}
+
+.action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* --- Durum Mesajları --- */
+.status-message {
+    text-align: center;
+    font-weight: 500;
+    min-height: 20px;
+    color: var(--text-primary);
+}
+
+/* --- Sonuç Alanı --- */
+.results-container {
+    background-color: var(--bg-card);
+    border-radius: var(--border-radius);
+    padding: 16px;
+    border: 1px solid #344;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--bg-main);
+}
+
+.results-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.badge {
+    background-color: var(--brand-orange);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.list-wrapper {
+    max-height: 180px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--bg-hover) var(--bg-main);
+}
+
+.list-wrapper::-webkit-scrollbar {
+    width: 6px;
+}
+.list-wrapper::-webkit-scrollbar-thumb {
+    background-color: var(--bg-hover);
+    border-radius: 10px;
+}
+
+.user-list {
+    list-style: none;
+}
+
+.user-list li {
+    margin-bottom: 4px;
+}
+
+.user-list li a {
+    display: block;
+    padding: 8px 12px;
+    background-color: var(--bg-main);
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: background-color var(--transition-speed);
+}
+
+.user-list li a:hover {
+    background-color: var(--bg-hover);
+    color: var(--brand-green);
+}
+
+/* --- Footer Eklemeleri --- */
+
+/* Yeni eklenen destek yazısı için stil */
+.support-text {
+    font-size: 11px;        /* Küçük ve kibar olsun */
+    color: var(--text-secondary); /* Ana metin renginden olsun */
+    opacity: 0.8;           /* Biraz soluk durması şık gösterir */
+    margin-bottom: -4px;    /* Butonla arasını biraz kapatalım */
+}
+
+/* Mevcut footer ayarını güncelle (Eğer zaten varsa burayı kontrol et) */
+footer {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px; /* Öğeler arasındaki genel boşluk */
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05); /* İnce bir ayırıcı çizgi şık durur */
+}
+/* --- Footer Link Rengi Düzeltmesi --- */
+footer a {
+    color: var(--text-primary); /* Parlak Beyaz/Açık Gri */
+    text-decoration: underline;
+}
+
+footer a:hover {
+    color: var(--brand-orange); /* Üzerine gelindiğinde turuncu vurgu */
+}
+
+.warning {
+    font-size: 11px;
+    color: var(--danger);
+    text-align: center;
+    opacity: 0.8;
+}
+
+/* --- Yardımcı Sınıflar --- */
+.hidden {
+    display: none !important;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
