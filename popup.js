@@ -50,7 +50,7 @@ function resetApp() {
         // Restore button state
         const checkBtn = document.getElementById('checkBtn');
         checkBtn.disabled = false;
-        checkBtn.querySelector('.btn-text').textContent = "Check Connections";
+        checkBtn.querySelector('.btn-text').textContent = "Check Unfollowers";
     });
 }
 
@@ -98,7 +98,7 @@ async function startProcess() {
         console.error(err);
     } finally {
         checkBtn.disabled = false;
-        checkBtn.querySelector('.btn-text').textContent = "Check Connections";
+        checkBtn.querySelector('.btn-text').textContent = "Check Unfollowers";
     }
 }
 
