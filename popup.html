@@ -31,6 +31,13 @@
             </div>
             
             <div id="status" class="status-message"></div>
+
+            <div id="progress-container" class="progress-container hidden">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <span class="progress-text" id="progressText">0%</span>
+            </div>
             
             <div id="results-view" class="hidden">
                 <div class="results-header">
@@ -60,7 +67,7 @@
                 <span>☕</span> Buy me a Coffee
             </a>
             
-            <p class="warning">⚠️ Keep this window open during analysis.</p>
+            <p class="info-text" id="windowInfo">✅ You can close this window. Analysis runs in background.</p>
         </footer>
     </div>
     <script src="popup.js"></script>

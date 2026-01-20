@@ -1,6 +1,6 @@
-/* --- Global Değişkenler ve Ayarlar --- */
+/* --- Global Variables and Settings --- */
 :root {
-    --bg-main: #14181c;
+    --bg-main: #121d27;
     --bg-card: #1f262d;
     --bg-hover: #2c3440;
     --brand-green: #00e054;
@@ -27,7 +27,7 @@ body {
     line-height: 1.5;
 }
 
-/* --- Ana Konteyner ve Header --- */
+/* --- Main Container and Header --- */
 .app-container {
     padding: 20px;
     display: flex;
@@ -35,37 +35,45 @@ body {
     gap: 16px;
 }
 
-/* GÜNCELLENEN KISIM BURASI */
+/* UPDATED SECTION */
 .header-content {
     display: flex;
-    align-items: center; /* Dikeyde ortala */
-    justify-content: flex-start; /* <-- DEĞİŞTİ: 'center' yerine 'flex-start' yaparak sola yasladık */
-    gap: 12px; /* Logo ile yazı arasındaki boşluk */
+    align-items: center;
+    /* Center vertically */
+    justify-content: flex-start;
+    /* <-- CHANGED: 'center' to 'flex-start' to align left */
+    gap: 12px;
+    /* Gap between logo and text */
     margin-bottom: 10px;
-    /* İsterseniz ana çerçeveye daha yakın olması için negatif margin verebilirsiniz, örneğin: */
+    /* Optional: use negative margin to get closer to frame */
     /* margin-left: -5px; */
 }
 
-/* Logo boyutu ayarı */
+/* Logo size settings */
 .app-logo {
     height: 80px;
     width: auto;
 }
 
-/* --- style.css içinde bu bloğu bul ve değiştir --- */
+/* --- Find and replace this block in style.css --- */
 
 .app-header h1 {
     color: var(--text-primary);
-    font-family: 'Poppins', sans-serif; /* Yeni Font */
-    font-size: 19px;                    /* Biraz büyüttük */
-    font-weight: 700;                   /* Kalın */
-    letter-spacing: 0.5px;              /* Harf aralığı */
+    font-family: 'Poppins', sans-serif;
+    /* New Font */
+    font-size: 19px;
+    /* Slightly larger */
+    font-weight: 700;
+    /* Bold */
+    letter-spacing: 0.5px;
+    /* Letter spacing */
     margin: 0;
-    
-    /* İsteğe bağlı: Hafif bir parlama efekti premium hissettirir */
-    text-shadow: 0 2px 4px rgba(0,0,0, 0.3); 
+
+    /* Optional: Subtle glow effect for premium feel */
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
-/* --- Form Elemanları --- */
+
+/* --- Form Elements --- */
 .input-group {
     display: flex;
     flex-direction: column;
@@ -101,14 +109,14 @@ input[type="text"]::placeholder {
     color: #567;
 }
 
-/* Input odaklanma efekti */
+/* Input focus effect */
 input[type="text"]:focus {
     background-color: #181f26;
     border-color: var(--brand-green);
     box-shadow: 0 0 0 3px rgba(0, 224, 84, 0.15);
 }
 
-/* --- Butonlar --- */
+/* --- Buttons --- */
 .btn {
     width: 100%;
     padding: 12px;
@@ -125,7 +133,7 @@ input[type="text"]:focus {
 
 .btn-primary {
     background-color: var(--brand-green);
-    color: #003815; 
+    color: #003815;
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -169,15 +177,70 @@ input[type="text"]:focus {
     gap: 8px;
 }
 
-/* --- Durum Mesajları --- */
+/* --- Status Messages --- */
 .status-message {
     text-align: center;
     font-weight: 500;
-    min-height: 20px;
+    min-height: 42px;
+    /* Fixed height for 2 lines (14px font * 1.5 line-height * 2) */
+    height: 42px;
+    /* Fixed height - size doesn't change */
     color: var(--text-primary);
+    white-space: pre-line;
+    /* Show \n characters as line breaks */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
 }
 
-/* --- Sonuç Alanı --- */
+/* --- Progress Bar --- */
+.progress-container {
+    margin: 4px 0 8px 0;
+    /* Top and bottom margin reduced */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    /* Gap also reduced */
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background-color: var(--bg-card);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #344;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--brand-green) 0%, #00c030 50%, var(--brand-green) 100%);
+    background-size: 200% 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    animation: shimmer 2s infinite linear;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+.progress-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--brand-green);
+}
+
+/* --- Results Area --- */
 .results-container {
     background-color: var(--bg-card);
     border-radius: var(--border-radius);
@@ -221,6 +284,7 @@ input[type="text"]:focus {
 .list-wrapper::-webkit-scrollbar {
     width: 6px;
 }
+
 .list-wrapper::-webkit-scrollbar-thumb {
     background-color: var(--bg-hover);
     border-radius: 10px;
@@ -250,34 +314,43 @@ input[type="text"]:focus {
     color: var(--brand-green);
 }
 
-/* --- Footer Eklemeleri --- */
+/* --- Footer Additions --- */
 
-/* Yeni eklenen destek yazısı için stil */
+/* Style for the new support text */
 .support-text {
-    font-size: 11px;        /* Küçük ve kibar olsun */
-    color: var(--text-secondary); /* Ana metin renginden olsun */
-    opacity: 0.8;           /* Biraz soluk durması şık gösterir */
-    margin-bottom: -4px;    /* Butonla arasını biraz kapatalım */
+    font-size: 11px;
+    /* Small and polite */
+    color: var(--text-secondary);
+    /* Match main text color */
+    opacity: 0.8;
+    /* Slightly faded looks elegant */
+    margin-bottom: -4px;
+    /* Reduce gap with button */
 }
 
-/* Mevcut footer ayarını güncelle (Eğer zaten varsa burayı kontrol et) */
+/* Update existing footer settings (check here if already exists) */
 footer {
     margin-top: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px; /* Öğeler arasındaki genel boşluk */
+    gap: 8px;
+    /* General spacing between items */
     padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05); /* İnce bir ayırıcı çizgi şık durur */
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    /* Thin separator line looks elegant */
 }
-/* --- Footer Link Rengi Düzeltmesi --- */
+
+/* --- Footer Link Color Fix --- */
 footer a {
-    color: var(--text-primary); /* Parlak Beyaz/Açık Gri */
+    color: var(--text-primary);
+    /* Bright White/Light Gray */
     text-decoration: underline;
 }
 
 footer a:hover {
-    color: var(--brand-orange); /* Üzerine gelindiğinde turuncu vurgu */
+    color: var(--brand-orange);
+    /* Orange highlight on hover */
 }
 
 .warning {
@@ -287,12 +360,26 @@ footer a:hover {
     opacity: 0.8;
 }
 
-/* --- Yardımcı Sınıflar --- */
+.info-text {
+    font-size: 11px;
+    color: var(--brand-green);
+    text-align: center;
+    opacity: 0.9;
+}
+
+/* --- Utility Classes --- */
 .hidden {
     display: none !important;
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
