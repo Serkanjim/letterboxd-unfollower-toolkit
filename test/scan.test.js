@@ -117,3 +117,26 @@ test('formatDuration', () => {
     assert.equal(formatDuration(301), '5m 1s');
     assert.equal(formatDuration(0.2), '1s');
 });
+
+test('progress and ETA of a quick update count only the pages it plans to read', () => {
+    const head = Array.from({ length: 25 }, (_, i) => `n${i}`);
+    const scan = scanState({
+        expected: { followers: exact(5000), following: exact(5000) },     // a full read would be 200 pages each
+        plans: { followers: { delta: 0, head }, following: { delta: 3, head } }
+    });
+    scan.streams.followers.mode = 'quick';
+    scan.streams.following.mode = 'quick';
+
+    // followers: head page + probe = 2; following: 28 names need 2 head pages + probe = 3
+    assert.deepEqual(progressInfo(scan), { percent: 0, pagesDone: 0, pagesTotal: 5 });
+    assert.equal(estimateSeconds(scan, 0), 3);                           // the slower list sets the pace, no breaks
+
+    scan.streams.followers.requests = 2;
+    scan.streams.followers.done = true;
+    scan.streams.following.requests = 1;
+    assert.deepEqual(progressInfo(scan), { percent: 60, pagesDone: 3, pagesTotal: 5 });
+
+    // Falling back to a full read puts the real size back.
+    scan.streams.following.mode = 'full';
+    assert.equal(progressInfo(scan).pagesTotal, 2 + 200);
+});

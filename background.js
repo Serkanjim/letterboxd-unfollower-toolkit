@@ -33,7 +33,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     let work;
     switch (request.type) {
         case 'START_SCAN':
-            work = engine.start(request.username);
+            work = engine.start(request.username, { full: request.full === true });
             break;
         case 'CANCEL_SCAN':
             work = engine.cancel();

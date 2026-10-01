@@ -514,3 +514,294 @@ test('cancel keeps the saved history; clearHistory removes it', async () => {
     assert.equal(ctx.storage.data.ignored, undefined);
     assert.ok(ctx.storage.data.scanResult);                           // the visible result stays
 });
+
+// ---- Incremental (quick) scans ----
+// Letterboxd lists newest follows first, so a world is an array with new people unshifted onto the front.
+
+const resetLog = site => {
+    for (const key of Object.keys(site.calls)) delete site.calls[key];
+    site.log.length = 0;
+};
+const requested = (site, type) => site.log.filter(key => key.startsWith(`${type}:`)).map(key => Number(key.split(':')[1]));
+const lists = result => ({
+    unfollowers: result.unfollowers, fans: result.fans, mutuals: result.mutuals,
+    followersCount: result.followersCount, followingCount: result.followingCount
+});
+
+async function baselineScan(followers, following) {
+    const site = fakeLetterboxd({ followers, following });
+    const ctx = makeEngine({ site });
+    const first = await scanOnce(ctx);
+    assert.equal(first.scanInfo.mode, 'full');
+    resetLog(site);
+    ctx.clock.advance(3_600_000);
+    return { ctx, site, first };
+}
+
+// What a forced full scan of the current world reports, for comparison.
+async function fullScanOf(followers, following) {
+    const ctx = makeEngine({ site: fakeLetterboxd({ followers, following }) });
+    await ctx.engine.start('me', { full: true });
+    await ctx.engine.whenIdle();
+    return ctx.storage.data.scanResult;
+}
+
+test('first scan is full and stores what the next one needs to go quick', async () => {
+    const { ctx, first } = await baselineScan(names('f', 300), names('f', 300));
+    assert.equal(first.scanInfo.pages, 24);             // 12 pages per list (the empty page that ends a list is not counted)
+    const meta = ctx.storage.data.snapshots.me.streams;
+    assert.equal(meta.followers.profileCount, 300);
+    assert.equal(meta.followers.quickRuns, 0);
+    assert.equal(meta.followers.fullAt, first.completedAt);
+});
+
+test('a rescan with nothing new reads only the head and the last page of each list', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const { ctx, site, first } = await baselineScan(followers, following);
+
+    const result = await scanOnce(ctx);
+
+    assert.deepEqual(result.scanInfo, { mode: 'quick', pages: 4 });
+    assert.deepEqual(requested(site, 'followers'), [1, 12]);
+    assert.deepEqual(requested(site, 'following'), [1, 12]);
+    assert.deepEqual(lists(result), lists(first));
+    assert.equal(result.verification.ok, true);
+    assert.deepEqual(result.tracking, { status: 'ok', previousAt: first.completedAt, gained: 0, lost: 0 });
+
+    const meta = ctx.storage.data.snapshots.me.streams;
+    assert.equal(meta.followers.quickRuns, 1);
+    assert.equal(meta.followers.fullAt, first.completedAt);          // the last full read is remembered
+});
+
+test('new followers and new follows are found by reading just the first pages', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const { ctx, site } = await baselineScan(followers, following);
+
+    followers.unshift('new3', 'new2', 'new1');          // three people followed me
+    following.unshift('iFollowed');                     // and I followed one person
+
+    const result = await scanOnce(ctx);
+
+    assert.equal(result.scanInfo.mode, 'quick');
+    assert.deepEqual(requested(site, 'followers'), [1, 2, 13]);      // 3 new + 25 old head -> 2 pages, then the last page
+    assert.deepEqual(requested(site, 'following'), [1, 2, 13]);
+    assert.deepEqual(result.fans, ['new3', 'new2', 'new1']);
+    assert.deepEqual(result.unfollowers, ['iFollowed']);
+    assert.equal(result.followersCount, 303);
+    assert.deepEqual(result.tracking.gained, 3);
+    assert.deepEqual(ctx.storage.data.history.me[0].gained, ['new3', 'new2', 'new1']);
+    assert.deepEqual(lists(result), lists(await fullScanOf(followers, following)));
+});
+
+test('somebody leaving forces a full read, which then names them', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const { ctx, site } = await baselineScan(followers, following);
+
+    followers.splice(150, 1);                           // f150 unfollows me, deep in the list
+    const result = await scanOnce(ctx);
+
+    assert.equal(result.scanInfo.mode, 'mixed');         // followers: full (count went down); following: still quick
+    assert.equal(requested(site, 'followers').length, 13);
+    assert.deepEqual(requested(site, 'following'), [1, 12]);
+    assert.deepEqual(ctx.storage.data.history.me[0].lost, ['f150']);
+    assert.deepEqual(result.unfollowers, ['f150']);      // I still follow them
+    assert.equal(result.verification.ok, true);
+});
+
+test('a gain and a loss that cancel out in the count are still caught', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const { ctx, site } = await baselineScan(followers, following);
+
+    followers.splice(200, 1);                           // one leaves ...
+    followers.unshift('newbie');                        // ... one arrives: the profile count is unchanged
+    const result = await scanOnce(ctx);
+
+    assert.equal(result.scanInfo.mode, 'mixed');
+    assert.equal(requested(site, 'followers')[0], 1);
+    assert.equal(requested(site, 'followers').length, 13);     // fell back to the full read
+    const entry = ctx.storage.data.history.me[0];
+    assert.deepEqual([entry.lost, entry.gained], [['f200'], ['newbie']]);
+    assert.deepEqual(lists(result), lists(await fullScanOf(followers, following)));
+});
+
+test('a change that only shows at the end of the list is caught by the last-page probe', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const { ctx, site } = await baselineScan(followers, following);
+
+    // Not how Letterboxd orders things, but if it ever did: head and counts look unchanged.
+    followers.splice(120, 1);
+    followers.push('tailnew');
+    const result = await scanOnce(ctx);
+
+    assert.equal(result.scanInfo.mode, 'mixed');
+    assert.deepEqual(requested(site, 'followers').slice(0, 2), [1, 12]);       // head, then the probe, then everything
+    assert.equal(requested(site, 'followers').length, 2 + 11 + 1);
+    const entry = ctx.storage.data.history.me[0];
+    assert.deepEqual([entry.lost, entry.gained], [['f120'], ['tailnew']]);
+});
+
+test('"full scan" forces a complete read', async () => {
+    const all = names('f', 300);
+    const { ctx, site, first } = await baselineScan(all, [...all]);
+
+    await ctx.engine.start('me', { full: true });
+    await ctx.engine.whenIdle();
+
+    assert.equal(ctx.storage.data.scanResult.scanInfo.mode, 'full');
+    assert.equal(requested(site, 'followers').length, 13);
+    assert.deepEqual(lists(ctx.storage.data.scanResult), lists(first));
+    assert.equal(ctx.storage.data.snapshots.me.streams.followers.quickRuns, 0);
+});
+
+test('small lists, old baselines and too many quick runs all go back to a full read', async () => {
+    const small = await baselineScan(names('s', 60), names('s', 60));
+    assert.equal((await scanOnce(small.ctx)).scanInfo.mode, 'full');                 // 60 people: not worth it
+
+    const old = await baselineScan(names('f', 300), names('f', 300));
+    old.ctx.clock.advance(15 * 24 * 3600_000);                                       // baseline is 15 days old
+    assert.equal((await scanOnce(old.ctx)).scanInfo.mode, 'full');
+    assert.equal((await scanOnce(old.ctx)).scanInfo.mode, 'quick');                  // fresh baseline again
+
+    const busy = await baselineScan(names('f', 300), names('f', 300));
+    busy.ctx.storage.data.snapshots.me.streams.followers.quickRuns = 10;
+    busy.ctx.storage.data.snapshots.me.streams.following.quickRuns = 10;
+    const refreshed = await scanOnce(busy.ctx);
+    assert.equal(refreshed.scanInfo.mode, 'full');
+    assert.equal(busy.ctx.storage.data.snapshots.me.streams.followers.quickRuns, 0);
+});
+
+test('an unreadable profile count means no quick scan', async () => {
+    const all = names('f', 300);
+    let blind = false;
+    const site = fakeLetterboxd({
+        followers: all, following: all,
+        intercept: ({ type }) => (blind && type === 'profile' ? { status: 200, body: '<div>no counts here</div>' } : null)
+    });
+    const ctx = makeEngine({ site });
+    await scanOnce(ctx);
+
+    blind = true;
+    ctx.clock.advance(1000);
+    const result = await scanOnce(ctx);
+    assert.equal(result.scanInfo.mode, 'full');
+    assert.equal(result.verification.ok, null);          // nothing to verify against, so no baseline either
+});
+
+// The property that matters: whatever happens between two scans, a quick scan reports exactly what a
+// full scan would, as long as Letterboxd keeps listing newest follows first.
+test('quick scans agree with full scans across random changes', async () => {
+    let seed = 20260101;
+    const rand = () => {                                // mulberry32
+        seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const int = (min, max) => min + Math.floor(rand() * (max - min + 1));
+    let quickScans = 0;
+    let fallbacks = 0;
+
+    for (let round = 0; round < 40; round++) {
+        const followers = names(`f${round}_`, int(100, 400));
+        const following = names(`g${round}_`, int(100, 400));
+        for (const name of following.slice(0, int(20, 80))) followers.push(name);     // some mutuals
+        const { ctx } = await baselineScan(followers, following);
+
+        for (let step = 0; step < 3; step++) {
+            for (const list of [followers, following]) {
+                for (let i = int(0, 4); i > 0; i--) list.unshift(`n${round}_${step}_${list === followers ? 'f' : 'g'}${i}`);
+                for (let i = rand() < 0.4 ? int(1, 3) : 0; i > 0; i--) list.splice(int(0, list.length - 1), 1);
+            }
+            ctx.clock.advance(60_000);
+            const result = await scanOnce(ctx);
+            const expected = await fullScanOf(followers, following);
+
+            assert.deepEqual(lists(result), lists(expected), `round ${round} step ${step}`);
+            assert.equal(result.verification.ok, true);
+            if (result.scanInfo.mode === 'quick') quickScans++;
+            else fallbacks++;
+        }
+    }
+    // Both paths must actually have been exercised.
+    assert.ok(quickScans >= 20, `quick scans: ${quickScans}`);
+    assert.ok(fallbacks >= 10, `fallbacks: ${fallbacks}`);
+});
+
+test('a quick scan survives the worker being killed halfway', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const { ctx, site, first } = await baselineScan(followers, following);
+    followers.unshift('new1');
+
+    // The next worker dies after its first pause (its sleep never returns).
+    let sleeps = 0;
+    const clock = ctx.clock;
+    const dying = makeEngine({
+        storage: ctx.storage, clock, site,
+        sleep: ms => (++sleeps > 1 ? new Promise(() => { }) : clock.sleep(ms))
+    });
+    await dying.engine.start('me');
+    await settle();
+    assert.ok(ctx.storage.data.scan, 'scan is still in flight');
+    assert.equal(ctx.storage.data.scanResult, undefined);
+
+    const revived = makeEngine({ storage: ctx.storage, clock, site });
+    await revived.engine.init();
+    await revived.engine.whenIdle();
+
+    const result = ctx.storage.data.scanResult;
+    assert.equal(result.scanInfo.mode, 'quick');
+    assert.deepEqual(result.fans, ['new1']);
+    assert.deepEqual(lists({ ...result, fans: [] }).unfollowers, first.unfollowers);
+});
+
+test('the saved baseline cannot be wiped while a scan is running', async () => {
+    const all = names('f', 300);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const site = fakeLetterboxd({
+        followers: all, following: all,
+        intercept: ({ type, page, call }) => (type === 'followers' && page === 1 && call === 2 ? { gate } : null)
+    });
+    const ctx = makeEngine({ site });
+    await scanOnce(ctx);
+
+    await ctx.engine.start('me');
+    await settle();
+    const refused = await ctx.engine.clearHistory();
+    assert.equal(refused.ok, false);
+    assert.ok(ctx.storage.data.snapshots.me);
+
+    release();
+    await ctx.engine.whenIdle();
+    assert.equal(ctx.storage.data.scanResult.scanInfo.mode, 'quick');
+    assert.equal((await ctx.engine.clearHistory()).ok, true);
+});
+
+test('a quick update whose baseline vanished fails clearly instead of guessing', async () => {
+    const all = names('f', 300);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const site = fakeLetterboxd({
+        followers: all, following: all,
+        intercept: ({ type, page, call }) => (type === 'following' && page === 12 && call === 2 ? { gate } : null)
+    });
+    const ctx = makeEngine({ site });
+    await scanOnce(ctx);
+
+    await ctx.engine.start('me');
+    await settle();
+    delete ctx.storage.data.snapshots;                  // bypasses clearHistory on purpose
+    release();
+    await ctx.engine.whenIdle();
+
+    assert.equal(ctx.storage.data.scan.status, 'error');
+    assert.equal(ctx.storage.data.scan.error.retryable, false);
+    assert.match(ctx.storage.data.scan.error.message, /quick update/);
+    assert.equal(ctx.storage.data.scanResult, undefined);
+});

@@ -135,7 +135,7 @@ function renderLive() {
 
     if (!scan) {
         $('status').textContent = localMessage;
-        $('windowInfo').textContent = footerNote || (result ? '✅ Analysis complete!' : IDLE_INFO);
+        $('windowInfo').textContent = footerNote || (result ? completionText(result) : IDLE_INFO);
         return;
     }
 
@@ -152,6 +152,14 @@ function renderLive() {
     else $('progressBar').setAttribute('aria-valuenow', String(percent));
 
     $('windowInfo').textContent = etaText(estimateSeconds(scan, now));
+}
+
+// "Analysis complete", plus how it was done when we know: quick updates read far fewer pages.
+function completionText(finished) {
+    const info = finished.scanInfo;
+    if (!info) return '✅ Analysis complete!';
+    const how = info.mode === 'full' ? 'full scan' : info.mode === 'quick' ? 'quick update' : 'partly quick update';
+    return `✅ Analysis complete · ${how}, ${info.pages} ${info.pages === 1 ? 'page' : 'pages'} read`;
 }
 
 function describeScan(state, now) {
@@ -175,8 +183,14 @@ function describeScan(state, now) {
 
     if (state.phase === 'profile') return '🔎 Checking user...';
 
-    const page = Math.max(state.streams.followers.next, state.streams.following.next);
     const { followers, following } = state.expected ?? {};
+
+    // Both lists are being checked against the previous scan instead of being read in full.
+    if (['followers', 'following'].some(type => state.streams[type].mode === 'quick' && !state.streams[type].done)) {
+        return '⚡ Quick update: checking what changed\n🕘 since your last scan...';
+    }
+
+    const page = Math.max(state.streams.followers.next, state.streams.following.next);
     const totals = followers && following
         ? `\n👥 ${countLabel(followers)} followers · ${countLabel(following)} following`
         : '';
@@ -189,6 +203,7 @@ function countLabel(count) {
 
 function etaText(seconds) {
     if (seconds === null) return IDLE_INFO;
+    if (seconds <= 30) return '✅ Almost done! Just a few seconds...';
     const minutes = Math.ceil(seconds / 60);
     if (minutes > 1) return `✅ You can close this window. Come back in ${minutes} minutes.`;
     if (minutes === 1) return '✅ You can close this window. Come back in 1 minute.';
@@ -316,7 +331,10 @@ function renderChanges(list, view) {
     for (const entry of view.entries) {
         const title = document.createElement('li');
         title.className = 'section-title';
-        title.textContent = `${formatDate(entry.at)} · −${entry.lostCount} left · +${entry.gainedCount} new`;
+        const counts = [];
+        if (entry.lostCount > 0) counts.push(`−${entry.lostCount} left`);
+        if (entry.gainedCount > 0) counts.push(`+${entry.gainedCount} new`);
+        title.textContent = [formatDate(entry.at), ...counts].join(' · ');
         list.append(title);
 
         const youFollow = new Set(entry.lostYouFollow.map(name => name.toLowerCase()));
@@ -435,7 +453,7 @@ async function startProcess() {
     showHidden = false;
     showAll = false;
 
-    const response = await send({ type: 'START_SCAN', username });
+    const response = await send({ type: 'START_SCAN', username, full: $('fullScan').checked });
     localMessage = response.ok ? '' : `❌ ${response.error}`;
     await refresh();
 }
