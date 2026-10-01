@@ -16,14 +16,16 @@ Authentication: The extension does not require your Letterboxd password. It only
 3. Permissions Justification
 To provide its functionality, the extension requires the following permissions:
 
-storage: Used to store the results of your last scan, your username and the progress of a scan that is still running, all locally, so the popup can show them when you reopen it and an interrupted scan can continue where it stopped.
+storage: Used to store, locally, the results of your last scan, your username, the progress of a scan that is still running, a saved copy of the follower and following lists of up to five scanned accounts (to show who followed or unfollowed you between scans), the resulting change log, and the names you chose to hide from a list.
 
 alarms: Used to wake the extension's background worker when a scan has to pause (for example to stay within Letterboxd's rate limits) so that the scan can continue without keeping the popup open.
 
 Host Permissions (https://letterboxd.com/*): Necessary to fetch follower/following data directly from the Letterboxd website.
 
 4. Data Storage
-Any data saved by the extension (such as the list of users not following you back, or the partial progress of a running scan) is stored using chrome.storage.local. This data stays on your machine and is never uploaded to any cloud service or third party. You can clear this data at any time by clicking the "New Search" or "Cancel Scan" button within the extension.
+Any data saved by the extension (such as the lists from your last scan, the partial progress of a running scan, the saved snapshots and change log, and your hidden names) is stored using chrome.storage.local. This data stays on your machine and is never uploaded to any cloud service or third party.
+
+"New Search" and "Cancel Scan" discard the current result or running scan. The saved snapshots, change log and hidden names are kept so that later scans can be compared with earlier ones; you can delete them at any time with the "Clear saved history" button, and removing the extension deletes everything.
 
 5. Third-Party Disclosure
 We do not sell, trade, or otherwise transfer your information to outside parties. Since we do not collect any data, there is no data to share.

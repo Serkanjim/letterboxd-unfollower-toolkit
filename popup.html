@@ -44,16 +44,25 @@
             </div>
 
             <div id="results-view" class="hidden">
+                <div class="tabs" role="tablist" aria-label="Result lists">
+                    <button class="tab" role="tab" data-tab="unfollowers" aria-selected="true">Not back<span class="tab-count"></span></button>
+                    <button class="tab" role="tab" data-tab="fans" aria-selected="false" tabindex="-1">Fans<span class="tab-count"></span></button>
+                    <button class="tab" role="tab" data-tab="mutuals" aria-selected="false" tabindex="-1">Mutual<span class="tab-count"></span></button>
+                    <button class="tab" role="tab" data-tab="changes" aria-selected="false" tabindex="-1">Changes<span class="tab-count"></span></button>
+                </div>
+
                 <div class="results-header">
-                    <h3>Not Following Back</h3>
+                    <h3 id="resultsTitle">Not Following Back</h3>
                     <span class="badge" id="count">0</span>
                 </div>
 
                 <div id="verification" class="verification-warning hidden" role="alert"></div>
 
                 <div class="list-wrapper">
-                    <ul id="list" class="user-list"></ul>
+                    <ul id="list" class="user-list" role="tabpanel"></ul>
                 </div>
+
+                <button id="hiddenToggle" class="link-btn hidden"></button>
 
                 <div class="action-buttons">
                     <button id="downloadBtn" class="btn btn-secondary">
@@ -74,6 +83,7 @@
             </a>
 
             <p class="info-text" id="windowInfo">✅ You can close this window. Analysis runs in background.</p>
+            <button id="clearDataBtn" class="link-btn">Clear saved history</button>
         </footer>
     </div>
     <script type="module" src="popup.js"></script>

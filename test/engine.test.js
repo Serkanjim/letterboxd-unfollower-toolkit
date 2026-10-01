@@ -312,7 +312,7 @@ test('cancel stops an in-flight scan without leaving anything behind', async () 
     release();
     await ctx.engine.whenIdle();
 
-    assert.deepEqual(ctx.storage.data, {});            // no scan, no result, no stray pages
+    assert.deepEqual(ctx.storage.data, { lastUsername: 'me' });     // no scan, no result, no stray pages
     assert.equal(ctx.schedule.watchdogOn, false);
 });
 
@@ -362,4 +362,155 @@ test('init carries a v2.0 saved result forward and drops unreadable scan state',
     await ctx2.engine.init();
     assert.equal(stale.data.scan, undefined);
     assert.deepEqual(pageKeys(stale), []);
+});
+
+// ---- Fans, mutuals and change tracking ----
+
+const scanOnce = async ctx => {
+    await ctx.engine.start('me');
+    await ctx.engine.whenIdle();
+    return ctx.storage.data.scanResult;
+};
+
+test('splits the lists into not-following-back, fans and mutuals', async () => {
+    const followers = [...names('m', 5), ...names('fan', 3), 'Alice'];
+    const following = [...names('m', 5), 'alice', ...names('u', 2)];
+    const ctx = makeEngine({ site: fakeLetterboxd({ followers, following }) });
+
+    const result = await scanOnce(ctx);
+
+    assert.deepEqual(result.unfollowers, names('u', 2));
+    assert.deepEqual(result.fans, names('fan', 3));
+    assert.deepEqual(result.mutuals, [...names('m', 5), 'alice']);
+    assert.equal(result.tracking.status, 'first');
+    assert.equal(ctx.storage.data.lastUsername, 'me');
+});
+
+test('the first scan becomes the baseline and the next one reports who left and who arrived', async () => {
+    const followers = names('f', 40);
+    const following = [...names('f', 40), 'x1'];
+    const site = fakeLetterboxd({ followers, following });
+    const ctx = makeEngine({ site });
+
+    const first = await scanOnce(ctx);
+    assert.equal(first.tracking.status, 'first');
+    assert.equal(ctx.storage.data.snapshots.me.followers.length, 40);
+    assert.deepEqual(ctx.storage.data.history ?? {}, {});
+
+    // f1 and f2 unfollow; f1 is someone I follow back. A newcomer follows.
+    followers.splice(1, 2);
+    followers.push('newbie');
+    ctx.clock.advance(86_400_000);
+
+    const second = await scanOnce(ctx);
+    assert.deepEqual(second.tracking, { status: 'ok', previousAt: first.completedAt, gained: 1, lost: 2 });
+    assert.deepEqual(second.fans, ['newbie']);
+
+    const [entry] = ctx.storage.data.history.me;
+    assert.deepEqual(entry.lost, ['f1', 'f2']);
+    assert.deepEqual(entry.gained, ['newbie']);
+    assert.equal(entry.previousAt, first.completedAt);
+    assert.equal(ctx.storage.data.snapshots.me.at, second.completedAt);
+});
+
+test('an incomplete scan neither reports bogus changes nor replaces the baseline', async () => {
+    const followers = names('f', 100);
+    const following = names('f', 100);
+    let truncate = false;
+    const site = fakeLetterboxd({
+        followers,
+        following,
+        intercept: ({ type, page }) => (truncate && type === 'followers' && page >= 3 ? { status: 404 } : null)
+    });
+    const ctx = makeEngine({ site });
+
+    const first = await scanOnce(ctx);
+    const baseline = structuredClone(ctx.storage.data.snapshots);
+
+    truncate = true;                                    // half of the followers silently vanish
+    ctx.clock.advance(3_600_000);
+    const broken = await scanOnce(ctx);
+
+    assert.equal(broken.verification.ok, false);
+    assert.equal(broken.tracking.status, 'skipped');
+    assert.deepEqual(ctx.storage.data.snapshots, baseline);           // baseline untouched
+    assert.deepEqual(ctx.storage.data.history ?? {}, {});             // 50 "lost followers" were NOT logged
+
+    truncate = false;
+    followers.splice(10, 1);                            // one genuine unfollow
+    const healthy = await scanOnce(ctx);
+    assert.deepEqual(healthy.tracking, { status: 'ok', previousAt: first.completedAt, gained: 0, lost: 1 });
+});
+
+test('a crash while finishing does not lose the detected changes', async () => {
+    const followers = names('f', 30);
+    const site = fakeLetterboxd({ followers, following: [...followers] });
+    const storage = fakeStorage();
+    const ctx = makeEngine({ storage, site });
+    await scanOnce(ctx);
+
+    followers.pop();                                    // f29 leaves
+
+    // The worker dies after the result was written but before the scan state was cleaned up.
+    const realRemove = storage.remove;
+    let crashed = false;
+    storage.remove = async keys => {
+        if (!crashed && [].concat(keys).some(key => key.startsWith('pg:'))) {
+            crashed = true;
+            throw new Error('worker killed');
+        }
+        return realRemove(keys);
+    };
+
+    await ctx.engine.start('me');
+    await ctx.engine.whenIdle();
+    assert.equal(crashed, true);
+    assert.equal(storage.data.scan.status, 'error');
+    assert.equal(storage.data.scanResult.tracking.lost, 1);
+
+    assert.equal((await ctx.engine.resume()).ok, true);
+    await ctx.engine.whenIdle();
+
+    assert.equal(storage.data.scan, undefined);
+    assert.deepEqual(storage.data.scanResult.tracking.lost, 1);       // not recomputed against the new baseline
+    assert.equal(storage.data.history.me.length, 1);
+});
+
+test('when the history cannot be stored the result is still delivered', async () => {
+    const all = names('f', 30);
+    const storage = fakeStorage();
+    const realSet = storage.set;
+    storage.set = async values => {
+        if ('snapshots' in values) throw new Error('QUOTA_BYTES quota exceeded');
+        return realSet(values);
+    };
+    const ctx = makeEngine({ storage, site: fakeLetterboxd({ followers: all, following: [...all, 'x'] }) });
+
+    const result = await scanOnce(ctx);
+
+    assert.deepEqual(result.unfollowers, ['x']);
+    assert.equal(result.tracking.status, 'unavailable');
+    assert.equal(storage.data.snapshots, undefined);
+    assert.equal(storage.data.scan, undefined);
+});
+
+test('cancel keeps the saved history; clearHistory removes it', async () => {
+    const all = names('f', 30);
+    const ctx = makeEngine({ site: fakeLetterboxd({ followers: all, following: all }) });
+    await scanOnce(ctx);
+    ctx.storage.data.ignored = { me: ['x'] };
+    ctx.storage.data.history = { me: [{ at: 1 }] };
+
+    await ctx.engine.cancel();
+    assert.ok(ctx.storage.data.snapshots.me);
+    assert.ok(ctx.storage.data.history.me);
+    assert.deepEqual(ctx.storage.data.ignored, { me: ['x'] });
+    assert.equal(ctx.storage.data.scanResult, undefined);
+
+    await scanOnce(ctx);
+    await ctx.engine.clearHistory();
+    assert.equal(ctx.storage.data.snapshots, undefined);
+    assert.equal(ctx.storage.data.history, undefined);
+    assert.equal(ctx.storage.data.ignored, undefined);
+    assert.ok(ctx.storage.data.scanResult);                           // the visible result stays
 });

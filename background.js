@@ -41,6 +41,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'RESUME_SCAN':
             work = engine.resume();
             break;
+        case 'CLEAR_HISTORY':
+            work = engine.clearHistory();
+            break;
         case 'SYNC':
             // Opening the popup wakes the worker, and init() below has already resumed any scan.
             work = Promise.resolve({ ok: true });

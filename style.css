@@ -318,6 +318,133 @@ input[type="text"]:focus {
     color: var(--brand-green);
 }
 
+/* --- Result tabs --- */
+.tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 3px;
+    background-color: var(--bg-card);
+    border-radius: var(--border-radius);
+}
+
+.tab {
+    flex: 1;
+    padding: 6px 4px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color var(--transition-speed), color var(--transition-speed);
+}
+
+.tab:hover {
+    color: var(--text-primary);
+}
+
+.tab[aria-selected="true"] {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.tab:focus-visible,
+.link-btn:focus-visible,
+.row-action:focus-visible {
+    outline: 2px solid var(--brand-green);
+    outline-offset: 1px;
+}
+
+.tab-count {
+    margin-left: 4px;
+    color: var(--brand-orange);
+}
+
+.tab-count:empty {
+    display: none;
+}
+
+/* --- Rows, notes and small actions inside the lists --- */
+.user-list li.row {
+    display: flex;
+    gap: 4px;
+}
+
+.user-list li.row a {
+    flex: 1;
+    min-width: 0;
+}
+
+.row-action {
+    flex: none;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background-color: var(--bg-main);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.row-action:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.user-list li.note {
+    padding: 8px 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.user-list li.section-title {
+    margin: 10px 0 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.user-list li.more {
+    text-align: center;
+}
+
+.user-list .hint {
+    margin-left: 6px;
+    font-size: 10px;
+    color: var(--brand-orange);
+}
+
+.user-list li.dimmed a {
+    opacity: 0.6;
+}
+
+.link-btn {
+    margin: -8px auto 12px;
+    padding: 2px 4px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.link-btn:hover {
+    color: var(--text-primary);
+}
+
+footer .link-btn {
+    margin: 0;
+    opacity: 0.7;
+}
+
 .user-list .ext-arrow {
     float: right;
     opacity: 0.6;
