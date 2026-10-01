@@ -16,14 +16,14 @@ Authentication: The extension does not require your Letterboxd password. It only
 3. Permissions Justification
 To provide its functionality, the extension requires the following permissions:
 
-scripting: Used to parse the Document Object Model (DOM) of Letterboxd profile pages to identify user lists.
+storage: Used to store the results of your last scan, your username and the progress of a scan that is still running, all locally, so the popup can show them when you reopen it and an interrupted scan can continue where it stopped.
 
-storage: Used to store the results of your last scan and your username locally, ensuring a better user experience upon reopening the popup.
+alarms: Used to wake the extension's background worker when a scan has to pause (for example to stay within Letterboxd's rate limits) so that the scan can continue without keeping the popup open.
 
 Host Permissions (https://letterboxd.com/*): Necessary to fetch follower/following data directly from the Letterboxd website.
 
 4. Data Storage
-Any data saved by the extension (such as the list of users not following you back) is stored using chrome.storage.local. This data stays on your machine and is never uploaded to any cloud service or third party. You can clear this data at any time by clicking the "New Search" or "Reset" button within the extension.
+Any data saved by the extension (such as the list of users not following you back, or the partial progress of a running scan) is stored using chrome.storage.local. This data stays on your machine and is never uploaded to any cloud service or third party. You can clear this data at any time by clicking the "New Search" or "Cancel Scan" button within the extension.
 
 5. Third-Party Disclosure
 We do not sell, trade, or otherwise transfer your information to outside parties. Since we do not collect any data, there is no data to share.

@@ -1,376 +1,234 @@
-document.addEventListener('DOMContentLoaded', restoreState);
+// Popup UI. The scan itself runs in the background service worker (lib/engine.js) and keeps its
+// state in chrome.storage.local, so everything shown here is rendered from storage:
+//   scan        progress of the running (or failed) scan
+//   scanResult  result of the last finished scan
 
-// Define Event Listeners
-document.getElementById('checkBtn').addEventListener('click', startProcess);
-document.getElementById('downloadBtn').addEventListener('click', downloadResults);
-document.getElementById('resetBtn').addEventListener('click', resetApp);
+import { isValidUsername, normalizeUsername } from './lib/parser.js';
+import { estimateSeconds, formatDuration, progressInfo, verificationWarning } from './lib/scan.js';
 
-let unfollowersList = [];
-let etaCountdownInterval = null;
-let remainingMinutes = null; // null = ETA not yet calculated
-let currentSearchUsername = ''; // Track which username we're searching for
+const $ = id => document.getElementById(id);
+const IDLE_INFO = '✅ You can close this window. Analysis runs in background.';
 
-// Listen for messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // Info messages - only updates status text, doesn't touch progress bar
-    if (message.type === 'INFO_MESSAGE') {
-        const statusDiv = document.getElementById('status');
-        statusDiv.textContent = message.message;
-    }
+let scan = null;            // scan state from storage, or null
+let result = null;          // last finished result from storage, or null
+let localMessage = '';      // validation / request errors that are not part of the scan state
+let ticker = null;          // 1s timer that keeps countdowns fresh while a scan is active
 
-    if (message.type === 'PROGRESS_UPDATE') {
-        updateProgress(message.percentage, message.message);
-
-        // Update ETA when received
-        if (message.eta !== null && message.eta !== undefined && message.eta > 0) {
-            // Only update ETA with positive values
-            // And if there's already an ETA, only allow smaller values (shouldn't go backwards)
-            if (remainingMinutes === null || message.eta <= remainingMinutes || !etaCountdownInterval) {
-                remainingMinutes = message.eta;
-                updateFooterETA();
-            }
-
-            // Start countdown if this is the first time
-            if (!etaCountdownInterval && message.eta > 0) {
-                startETACountdown();
-            }
-        }
-    }
-
-    if (message.type === 'FETCH_COMPLETE') {
-        // Only process if this is for our current search
-        if (message.username && message.username !== currentSearchUsername) {
-            return false;
-        }
-
-        unfollowersList = message.unfollowers;
-        hideProgress();
-        showResultsScreen(unfollowersList);
-        resetButtonState();
-        stopETACountdown();
-
-        // Reset footer
-        document.getElementById('windowInfo').textContent = '✅ Analysis complete!';
-    }
-
-    if (message.type === 'FETCH_ERROR') {
-        hideProgress();
-        document.getElementById('status').textContent = `❌ Error: ${message.error}`;
-        resetButtonState();
-        stopETACountdown();
-    }
-
-    return false;
+$('checkBtn').addEventListener('click', startProcess);
+$('resumeBtn').addEventListener('click', resumeScan);
+$('cancelBtn').addEventListener('click', () => discard({ clearInput: false }));
+$('resetBtn').addEventListener('click', () => discard({ clearInput: true }));
+$('downloadBtn').addEventListener('click', downloadResults);
+$('username').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !$('checkBtn').disabled) startProcess();
 });
 
-function startETACountdown() {
-    // Decrease by one minute every 60 seconds
-    etaCountdownInterval = setInterval(() => {
-        remainingMinutes--;
-        updateFooterETA();
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.scan || changes.scanResult)) refresh();
+});
 
-        if (remainingMinutes <= 0) {
-            stopETACountdown();
-        }
-    }, 60000); // 60 seconds
+init();
+
+async function init() {
+    send({ type: 'SYNC' });     // wakes the worker so it can resume an interrupted scan
+    await refresh();
 }
 
-function stopETACountdown() {
-    if (etaCountdownInterval) {
-        clearInterval(etaCountdownInterval);
-        etaCountdownInterval = null;
+async function send(message) {
+    try {
+        return (await chrome.runtime.sendMessage(message)) ?? { ok: false, error: 'The background worker did not answer.' };
+    } catch (error) {
+        return { ok: false, error: error.message };
     }
 }
 
-function updateFooterETA() {
-    const windowInfo = document.getElementById('windowInfo');
+async function refresh() {
+    const data = await chrome.storage.local.get(['scan', 'scanResult']);
+    scan = data.scan ?? null;
+    result = data.scanResult ?? null;
 
-    // If ETA not yet calculated, show default message
-    if (remainingMinutes === null) {
-        windowInfo.textContent = `✅ You can close this window. Analysis runs in background.`;
+    const input = $('username');
+    if (!input.value) input.value = scan?.username ?? result?.username ?? '';
+
+    render();
+}
+
+// --- Rendering ---
+
+function show(node, visible) {
+    node.classList.toggle('hidden', !visible);
+}
+
+function render() {
+    const scanning = scan?.status === 'running';
+    const failed = scan?.status === 'error';
+    const showResults = !scan && result !== null;
+
+    show($('search-view'), !showResults);
+    show($('results-view'), showResults);
+    show($('status'), !showResults);
+    show($('progress-container'), scanning);
+    show($('resumeBtn'), failed && Boolean(scan.error?.retryable));
+    show($('cancelBtn'), scan !== null);
+
+    $('checkBtn').disabled = scanning;
+    $('checkBtn').querySelector('.btn-text').textContent = scanning ? 'Processing...' : 'Check Unfollowers';
+
+    if (showResults) renderResults();
+    renderLive();
+
+    if (scanning && !ticker) ticker = setInterval(renderLive, 1000);
+    if (!scanning && ticker) {
+        clearInterval(ticker);
+        ticker = null;
+    }
+}
+
+// The parts that change with time: status text, progress bar and the footer hint.
+function renderLive() {
+    const now = Date.now();
+
+    if (!scan) {
+        $('status').textContent = localMessage;
+        $('windowInfo').textContent = result ? '✅ Analysis complete!' : IDLE_INFO;
         return;
     }
 
-    if (remainingMinutes > 1) {
-        windowInfo.textContent = `✅ You can close this window. Come back in ${remainingMinutes} minutes.`;
-    } else if (remainingMinutes === 1) {
-        windowInfo.textContent = `✅ You can close this window. Come back in 1 minute.`;
-    } else {
-        windowInfo.textContent = `✅ Almost done! Just a few seconds...`;
-    }
-}
-
-// --- 1. MEMORY MANAGEMENT ---
-
-let statusCheckInterval = null; // Periodic status check while popup is open
-
-function restoreState() {
-    if (typeof chrome.storage === 'undefined') {
-        console.error("Storage permission not found! Please reload the extension.");
+    $('status').textContent = describeScan(scan, now);
+    if (scan.status !== 'running') {
+        $('windowInfo').textContent = IDLE_INFO;
         return;
     }
 
-    // First check if background is still processing
-    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-        if (response && response.isProcessing) {
-            // Background is still working, show progress
-            const checkBtn = document.getElementById('checkBtn');
-            checkBtn.disabled = true;
-            checkBtn.querySelector('.btn-text').textContent = "Processing...";
-            showProgress();
+    const { percent } = progressInfo(scan);
+    $('progressFill').style.width = `${percent ?? 5}%`;
+    $('progressText').textContent = percent === null ? '…' : `${percent}%`;
+    if (percent === null) $('progressBar').removeAttribute('aria-valuenow');
+    else $('progressBar').setAttribute('aria-valuenow', String(percent));
 
-            // Show progress
-            const progress = response.progress;
-            const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
-            updateProgress(percentage, progress.message || 'Processing...');
-
-            // Start periodic status check (stay updated while popup is open)
-            startStatusCheck();
-        }
-    });
-
-    chrome.storage.local.get(['savedUnfollowers', 'savedUsername'], (data) => {
-        if (data.savedUnfollowers && data.savedUnfollowers.length > 0) {
-            unfollowersList = data.savedUnfollowers;
-            showResultsScreen(unfollowersList);
-            const userInput = document.getElementById('username');
-            if (userInput) userInput.value = data.savedUsername || '';
-        }
-    });
+    $('windowInfo').textContent = etaText(estimateSeconds(scan, now));
 }
 
-// Periodically check status while popup is open
-function startStatusCheck() {
-    if (statusCheckInterval) return; // Don't start if already running
+function describeScan(state, now) {
+    if (state.status === 'error') {
+        return `❌ Error: ${state.error?.message ?? 'Something went wrong.'}`;
+    }
 
-    statusCheckInterval = setInterval(() => {
-        chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-            if (chrome.runtime.lastError) {
-                stopStatusCheck();
-                return;
-            }
+    if (state.resumeAt > now) {
+        const left = formatDuration((state.resumeAt - now) / 1000);
+        switch (state.wait?.reason) {
+            case 'cooldown':
+                return `☕ Taking a short break to avoid rate limits...\n⏳ ${left} remaining`;
+            case 'ratelimit':
+                return `⏸️ Rate limited!\n⏳ Retrying in ${left}`;
+            case 'server':
+                return `⚠️ Letterboxd is not answering properly.\n⏳ Retrying in ${left}`;
+            default:
+                return `📡 Connection problem.\n⏳ Retrying in ${left}`;
+        }
+    }
 
-            if (response && response.isProcessing) {
-                const progress = response.progress;
-                const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+    if (state.phase === 'profile') return '🔎 Checking user...';
 
-                // Only show progress messages when intro is done
-                if (response.showProgressMessages) {
-                    updateProgress(percentage, progress.message || 'Processing...');
-                } else {
-                    // During intro - only update progress bar, don't touch message
-                    const progressFill = document.querySelector('.progress-fill');
-                    const progressText = document.querySelector('.progress-text');
-                    if (progressFill) progressFill.style.width = `${percentage}%`;
-                    if (progressText) progressText.textContent = `${percentage}%`;
-                }
-            } else {
-                // Process finished, stop status check
-                stopStatusCheck();
+    const page = Math.max(state.streams.followers.next, state.streams.following.next);
+    const { followers, following } = state.expected ?? {};
+    const totals = followers && following
+        ? `\n👥 ${countLabel(followers)} followers · ${countLabel(following)} following`
+        : '';
+    return `🚀 Fetching page ${page}...${totals}`;
+}
 
-                // Load and show results from storage
-                chrome.storage.local.get(['savedUnfollowers', 'savedUsername'], (data) => {
-                    if (data.savedUnfollowers) {
-                        unfollowersList = data.savedUnfollowers;
-                        hideProgress();
-                        showResultsScreen(unfollowersList);
-                        resetButtonState();
-                        stopETACountdown();
-                        document.getElementById('windowInfo').textContent = '✅ Analysis complete!';
-                    }
-                });
-            }
+function countLabel(count) {
+    return `${count.exact ? '' : '~'}${count.value.toLocaleString()}`;
+}
+
+function etaText(seconds) {
+    if (seconds === null) return IDLE_INFO;
+    const minutes = Math.ceil(seconds / 60);
+    if (minutes > 1) return `✅ You can close this window. Come back in ${minutes} minutes.`;
+    if (minutes === 1) return '✅ You can close this window. Come back in 1 minute.';
+    return '✅ Almost done! Just a few seconds...';
+}
+
+function renderResults() {
+    const users = result.unfollowers.filter(isValidUsername);
+    const warning = verificationWarning(result.verification);
+
+    $('count').textContent = users.length;
+    $('verification').textContent = warning;
+    show($('verification'), warning !== '');
+
+    const list = $('list');
+    list.replaceChildren();
+
+    if (users.length === 0) {
+        const item = document.createElement('li');
+        item.className = 'empty-state';
+        item.textContent = warning
+            ? 'No unfollowers found in the pages that were read.'
+            : '🎉 Everyone you follow follows you back!';
+        list.append(item);
+        return;
+    }
+
+    for (const name of users) {
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        const arrow = document.createElement('span');
+
+        link.href = profileLink(name);
+        link.textContent = `👤 ${name}`;
+        arrow.className = 'ext-arrow';
+        arrow.textContent = '↗';
+        link.append(arrow);
+
+        link.addEventListener('click', event => {
+            event.preventDefault();
+            openSmartWindow(link.href);
         });
-    }, 500); // Check every 500ms
-}
 
-function stopStatusCheck() {
-    if (statusCheckInterval) {
-        clearInterval(statusCheckInterval);
-        statusCheckInterval = null;
+        item.append(link);
+        list.append(item);
     }
 }
 
-function saveState(username, list) {
-    chrome.storage.local.set({
-        savedUsername: username,
-        savedUnfollowers: list
-    });
-}
-
-function resetApp() {
-    // Cancel any ongoing background fetch
-    chrome.runtime.sendMessage({ type: 'CANCEL_FETCH' });
-
-    // Clear current search tracking
-    currentSearchUsername = '';
-
-    // Reset ETA
-    remainingMinutes = null;
-    stopETACountdown();
-    stopStatusCheck();
-
-    chrome.storage.local.clear(() => {
-        unfollowersList = [];
-
-        // Reset View
-        document.getElementById('results-view').classList.add('hidden');
-        document.getElementById('search-view').classList.remove('hidden');
-        hideProgress();
-
-        // Clear text
-        document.getElementById('status').textContent = '';
-        document.getElementById('username').value = '';
-        document.getElementById('windowInfo').textContent = '✅ You can close this window. Analysis runs in background.';
-
-        // Restore button state
-        resetButtonState();
-    });
-}
-
-function resetButtonState() {
-    const checkBtn = document.getElementById('checkBtn');
-    checkBtn.disabled = false;
-    checkBtn.querySelector('.btn-text').textContent = "Check Unfollowers";
-}
-
-// --- 2. PROGRESS BAR FUNCTIONS ---
-
-function showProgress() {
-    document.getElementById('progress-container').classList.remove('hidden');
-}
-
-function hideProgress() {
-    document.getElementById('progress-container').classList.add('hidden');
-    document.getElementById('progressFill').style.width = '0%';
-    document.getElementById('progressText').textContent = '0%';
-}
-
-function updateProgress(percentage, message) {
-    const progressFill = document.getElementById('progressFill');
-    const progressText = document.getElementById('progressText');
-    const statusDiv = document.getElementById('status');
-
-    progressFill.style.width = `${percentage}%`;
-    progressText.textContent = `${percentage}%`;
-
-    if (message) {
-        statusDiv.textContent = message;
-    }
-}
-
-// --- 3. MAIN PROCESS ---
+// --- Actions ---
 
 async function startProcess() {
-    const usernameInput = document.getElementById('username');
-    const username = usernameInput.value.trim();
-    const statusDiv = document.getElementById('status');
-    const checkBtn = document.getElementById('checkBtn');
-
+    const username = normalizeUsername($('username').value);
     if (!username) {
-        statusDiv.textContent = "❌ Please enter a username.";
+        localMessage = '❌ Please enter a valid Letterboxd username (or paste a profile URL).';
+        renderLive();
         return;
     }
 
-    // UI Preparation
-    checkBtn.disabled = true;
-    checkBtn.querySelector('.btn-text').textContent = "Processing...";
-    statusDiv.classList.remove('hidden'); // Show status messages
-    statusDiv.textContent = "⏳ Starting...";
-    showProgress();
-    updateProgress(0, "⏳ Starting...");
+    $('username').value = username;
+    localMessage = '⏳ Starting...';
+    $('checkBtn').disabled = true;
+    renderLive();
 
-    // Track which username we're searching for
-    currentSearchUsername = username;
-
-    // Hide old results and CLEAR OLD STORAGE DATA
-    document.getElementById('results-view').classList.add('hidden');
-    unfollowersList = [];
-
-    // Clear old results - fresh start for new search
-    chrome.storage.local.remove(['savedUnfollowers', 'savedUsername']);
-
-    // Send message to background script to start fetching
-    chrome.runtime.sendMessage({
-        type: 'START_FETCH',
-        username: username
-    }, (response) => {
-        if (chrome.runtime.lastError) {
-            // Background script not available, fall back to popup-based fetch
-            fallbackFetch(username);
-        } else {
-            // Background çalışıyor, periyodik status check başlat
-            // Bu sayede popup focus kaybetse bile güncel kalır
-            startStatusCheck();
-        }
-    });
+    const response = await send({ type: 'START_SCAN', username });
+    localMessage = response.ok ? '' : `❌ ${response.error}`;
+    await refresh();
 }
 
-// Fallback function if background script fails
-async function fallbackFetch(username) {
-    const statusDiv = document.getElementById('status');
-    const checkBtn = document.getElementById('checkBtn');
-
-    try {
-        const baseUrl = `https://letterboxd.com/${username}/`;
-
-        const check = await fetch(baseUrl);
-        if (check.status !== 200) throw new Error("User not found or private.");
-
-        const followers = await fetchUsers(baseUrl, 'followers', statusDiv);
-        const following = await fetchUsers(baseUrl, 'following', statusDiv);
-
-        statusDiv.textContent = "🔄 Calculating differences...";
-        unfollowersList = [...following].filter(user => !followers.has(user));
-
-        hideProgress();
-        showResultsScreen(unfollowersList);
-        saveState(username, unfollowersList);
-
-        statusDiv.textContent = "";
-
-    } catch (err) {
-        statusDiv.textContent = `❌ Error: ${err.message}`;
-        hideProgress();
-        console.error(err);
-    } finally {
-        resetButtonState();
-    }
+async function resumeScan() {
+    $('resumeBtn').disabled = true;
+    const response = await send({ type: 'RESUME_SCAN' });
+    $('resumeBtn').disabled = false;
+    localMessage = response.ok ? '' : `❌ ${response.error}`;
+    await refresh();
 }
 
-// --- 4. HELPER FUNCTIONS ---
+async function discard({ clearInput }) {
+    await send({ type: 'CANCEL_SCAN' });
+    localMessage = '';
+    if (clearInput) $('username').value = '';
+    await refresh();
+}
 
-function showResultsScreen(list) {
-    document.getElementById('search-view').classList.add('hidden');
-    document.getElementById('status').classList.add('hidden');
-    document.getElementById('progress-container').classList.add('hidden');
-
-    const resultsView = document.getElementById('results-view');
-    resultsView.classList.remove('hidden');
-
-    const listEl = document.getElementById('list');
-    const countEl = document.getElementById('count');
-
-    listEl.innerHTML = '';
-    countEl.textContent = list.length;
-
-    list.forEach(link => {
-        const li = document.createElement('li');
-        const a = document.createElement('a');
-
-        const cleanName = link.replace(/\//g, '');
-        a.innerHTML = `👤 ${cleanName} <span style="float:right; opacity:0.6; font-size:10px;">↗</span>`;
-        a.href = `https://letterboxd.com${link}`;
-
-        // Smart Window Opening
-        a.onclick = (e) => {
-            e.preventDefault();
-            openSmartWindow(`https://letterboxd.com${link}`);
-        };
-
-        li.appendChild(a);
-        listEl.appendChild(li);
-    });
+function profileLink(username) {
+    return `https://letterboxd.com/${username}/`;
 }
 
 function openSmartWindow(url) {
@@ -382,49 +240,15 @@ function openSmartWindow(url) {
     window.open(url, 'LetterboxdUser', `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`);
 }
 
-async function fetchUsers(baseUrl, type, statusDiv) {
-    let page = 1;
-    let users = new Set();
-    let hasNextPage = true;
-
-    while (hasNextPage) {
-        statusDiv.textContent = `📥 Fetching page ${page}...`;
-        try {
-            const response = await fetch(`${baseUrl}${type}/page/${page}/`);
-
-            // 429 Rate Limit - Wait 301 seconds and retry
-            if (response.status === 429) {
-                statusDiv.textContent = `⏸️ Rate limited! Waiting 301 seconds...`;
-                await new Promise(r => setTimeout(r, 301000));
-                continue; // Retry same page
-            }
-
-            if (response.status !== 200) break;
-
-            const text = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/html');
-            const elements = doc.querySelectorAll('a.name');
-
-            if (elements.length === 0) {
-                hasNextPage = false;
-            } else {
-                elements.forEach(el => {
-                    users.add(el.getAttribute('href'));
-                });
-                page++;
-                await new Promise(r => setTimeout(r, 600));
-            }
-        } catch (e) {
-            hasNextPage = false;
-        }
-    }
-    return users;
-}
-
 function downloadResults() {
-    const textContent = unfollowersList.map(u => `https://letterboxd.com${u}`).join('\n');
-    const blob = new Blob([`Users not following back (${unfollowersList.length}):\n\n` + textContent], { type: 'text/plain' });
+    const users = result.unfollowers.filter(isValidUsername);
+    const warning = verificationWarning(result.verification);
+
+    const lines = [`Users not following back (${users.length}):`];
+    if (warning) lines.push(warning);
+    lines.push('', ...users.map(profileLink));
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
