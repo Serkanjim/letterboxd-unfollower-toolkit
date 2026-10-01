@@ -44,14 +44,14 @@ body {
     /* <-- CHANGED: 'center' to 'flex-start' to align left */
     gap: 12px;
     /* Gap between logo and text */
-    margin-bottom: 10px;
+    margin-bottom: 4px;
     /* Optional: use negative margin to get closer to frame */
     /* margin-left: -5px; */
 }
 
 /* Logo size settings */
 .app-logo {
-    height: 80px;
+    height: 56px;
     width: auto;
 }
 
@@ -298,7 +298,7 @@ input[type="text"]:focus {
 }
 
 .list-wrapper {
-    max-height: 180px;
+    max-height: 220px;
     overflow-y: auto;
     margin-bottom: 16px;
     scrollbar-width: thin;
@@ -387,6 +387,46 @@ input[type="text"]:focus {
     display: none;
 }
 
+/* --- Filter, sort and export controls --- */
+.toolbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.toolbar input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    font-size: 12px;
+}
+
+select {
+    padding: 6px 8px;
+    border: 1px solid #344;
+    border-radius: var(--border-radius);
+    background-color: var(--bg-card);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+}
+
+select:focus-visible {
+    outline: 2px solid var(--brand-green);
+    outline-offset: 1px;
+}
+
+.export-row {
+    display: flex;
+    gap: 6px;
+}
+
+.export-row .btn {
+    flex: 1;
+    padding: 10px;
+    font-size: 13px;
+}
+
 /* --- Rows, notes and small actions inside the lists --- */
 .user-list li.row {
     display: flex;
@@ -396,6 +436,59 @@ input[type="text"]:focus {
 .user-list li.row a {
     flex: 1;
     min-width: 0;
+}
+
+/* Rows with a face: avatar, name (+ @handle when the display name differs), hint, arrow */
+.user-list li a.person {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+}
+
+.person .prefix {
+    flex: none;
+}
+
+.avatar {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+    background-color: var(--bg-hover);
+}
+
+.avatar-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.avatar-fallback::before {
+    content: attr(data-letter);
+}
+
+.person .who {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.person .handle {
+    margin-left: 6px;
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+.person .ext-arrow {
+    float: none;
+    flex: none;
 }
 
 .row-action {
@@ -463,6 +556,52 @@ input[type="text"]:focus {
 footer .link-btn {
     margin: 0;
     opacity: 0.7;
+}
+
+/* --- Settings panel --- */
+.settings {
+    width: 100%;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.settings summary {
+    cursor: pointer;
+    text-align: center;
+    opacity: 0.85;
+}
+
+.settings summary:hover {
+    color: var(--text-primary);
+}
+
+.setting {
+    display: block;
+    margin-top: 8px;
+    cursor: pointer;
+}
+
+.setting.indent {
+    margin-left: 22px;
+}
+
+.setting input {
+    margin-right: 6px;
+    accent-color: var(--brand-green);
+}
+
+.setting input:disabled + * {
+    opacity: 0.5;
+}
+
+.setting-note {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--brand-orange);
+}
+
+.setting-note:empty {
+    display: none;
 }
 
 .user-list .ext-arrow {

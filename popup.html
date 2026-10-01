@@ -62,6 +62,14 @@
                     <span class="badge" id="count">0</span>
                 </div>
 
+                <div class="toolbar">
+                    <input type="text" id="filter" placeholder="Filter by name…" autocomplete="off" spellcheck="false" aria-label="Filter the list">
+                    <select id="sortSelect" aria-label="Sort order">
+                        <option value="site">Letterboxd order</option>
+                        <option value="name">Name (A–Z)</option>
+                    </select>
+                </div>
+
                 <div id="verification" class="verification-warning hidden" role="alert"></div>
 
                 <div class="list-wrapper">
@@ -71,9 +79,15 @@
                 <button id="hiddenToggle" class="link-btn hidden"></button>
 
                 <div class="action-buttons">
-                    <button id="downloadBtn" class="btn btn-secondary">
-                        Download List (.txt)
-                    </button>
+                    <div class="export-row">
+                        <button id="copyBtn" class="btn btn-secondary" title="Copy the profile links of the list as shown">Copy links</button>
+                        <select id="exportFormat" aria-label="Download format" title="Download the list as shown">
+                            <option value="txt">.txt</option>
+                            <option value="csv">.csv</option>
+                            <option value="json">.json</option>
+                        </select>
+                        <button id="downloadBtn" class="btn btn-secondary">Download</button>
+                    </div>
                     <button id="resetBtn" class="btn btn-danger">
                         New Search
                     </button>
@@ -89,6 +103,16 @@
             </a>
 
             <p class="info-text" id="windowInfo">✅ You can close this window. Analysis runs in background.</p>
+
+            <details class="settings" id="settings">
+                <summary>Settings</summary>
+                <label class="setting"><input type="checkbox" id="prefAvatars"> Show avatars</label>
+                <label class="setting"><input type="checkbox" id="prefBadges"> Mark people who don't follow me back on Letterboxd pages</label>
+                <label class="setting"><input type="checkbox" id="prefDaily"> Check once a day in the background<span id="dailyAccount"></span></label>
+                <label class="setting indent"><input type="checkbox" id="prefNotify"> Also show a notification when someone unfollows</label>
+                <p class="setting-note" id="settingsNote" role="status"></p>
+            </details>
+
             <button id="clearDataBtn" class="link-btn">Clear saved history</button>
         </footer>
     </div>

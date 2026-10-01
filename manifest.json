@@ -3,7 +3,13 @@
   "name": "Letterboxd Unfollower Toolkit",
   "version": "2.0",
   "description": "The ultimate unfollower tracker for Letterboxd. Find who isn't following back and open profiles directly to manage connections.",
-  "permissions": [ "storage", "alarms" ],
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "optional_permissions": [
+    "notifications"
+  ],
   "host_permissions": [
     "https://letterboxd.com/*"
   ],
@@ -11,6 +17,17 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://letterboxd.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "icons": {
     "16": "icon.png",
     "48": "icon.png",

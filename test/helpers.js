@@ -43,7 +43,8 @@ export function fakeSchedule() {
 export const names = (prefix, count, from = 0) =>
     Array.from({ length: count }, (_, i) => `${prefix}${from + i}`);
 
-export const memberRow = user => `<tr><td><a class="avatar" href="/${user}/"></a><h3><a href="/${user}/" class="name">${user}</a></h3></td></tr>`;
+// `info` may carry a display name and an avatar URL, as Letterboxd's member tables do.
+export const memberRow = (user, info = {}) => `<tr><td><div class="person-summary">${info.avatar ? `<a class="avatar -a40" href="/${user}/"><img src="${info.avatar}" alt=""></a>` : `<a class="avatar" href="/${user}/"></a>`}<h3><a href="/${user}/" class="name">${info.name ?? user}</a></h3></div></td></tr>`;
 
 export function profileHtml(username, followers, following) {
     return `<h1>${username}</h1>
@@ -54,7 +55,7 @@ export function profileHtml(username, followers, following) {
 // A fake letterboxd.com. `intercept({ type, page, call })` may return a replacement response
 // ({ status, headers, body }) to simulate rate limits, outages and so on; `call` counts the
 // requests made so far for that type/page (1-based).
-export function fakeLetterboxd({ username = 'me', followers, following, profile, intercept } = {}) {
+export function fakeLetterboxd({ username = 'me', followers, following, profile, intercept, faces = {} } = {}) {
     const calls = {};
     const log = [];
 
@@ -91,20 +92,21 @@ export function fakeLetterboxd({ username = 'me', followers, following, profile,
 
         const list = type === 'followers' ? followers : following;
         const slice = list.slice((page - 1) * 25, page * 25);
-        return slice.length > 0 ? respond({ body: slice.map(memberRow).join('') }) : respond({ status: 404 });
+        return slice.length > 0 ? respond({ body: slice.map(user => memberRow(user, faces[user])).join('') }) : respond({ status: 404 });
     };
 
     return { fetchImpl, calls, log };
 }
 
-export function makeEngine({ storage = fakeStorage(), clock = fakeClock(), schedule = fakeSchedule(), site, sleep } = {}) {
+export function makeEngine({ storage = fakeStorage(), clock = fakeClock(), schedule = fakeSchedule(), site, sleep, notify } = {}) {
     const engine = createEngine({
         storage,
         schedule,
         fetchImpl: site.fetchImpl,
         now: clock.now,
         sleep: sleep ?? clock.sleep,
-        random: () => 0
+        random: () => 0,
+        notify
     });
     return { engine, storage, clock, schedule, site };
 }

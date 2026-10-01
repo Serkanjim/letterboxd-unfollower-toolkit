@@ -5,14 +5,41 @@
 // an interrupted service worker simply resumes the scan when chrome.alarms wakes it up again.
 
 import { createEngine } from './lib/engine.js';
+import { describeUnfollows } from './lib/alerts.js';
+import { normalizePrefs } from './lib/prefs.js';
 
 const WAKE_ALARM = 'lb-scan-wake';          // fires when a break or retry wait is over
 const WATCHDOG_ALARM = 'lb-scan-watchdog';  // restarts the loop if the worker was stopped mid-scan
+const DAILY_ALARM = 'lb-daily-check';       // the optional once-a-day background check
 const WATCHDOG_PERIOD_MINUTES = 0.5;
+const DAILY_PERIOD_MINUTES = 24 * 60;
+
+async function readPrefs() {
+    return normalizePrefs((await chrome.storage.local.get('prefs')).prefs);
+}
+
+// Badge always; a notification only if the user asked for it and granted the optional permission.
+async function notify(summary) {
+    const { daily } = await readPrefs();
+    const text = describeUnfollows(summary);
+
+    await chrome.action.setBadgeBackgroundColor({ color: '#ff8000' });
+    await chrome.action.setBadgeText({ text: text.badge });
+
+    if (daily.notify && await chrome.permissions.contains({ permissions: ['notifications'] }) && chrome.notifications) {
+        await chrome.notifications.create({
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('icon.png'),
+            title: text.title,
+            message: text.message
+        });
+    }
+}
 
 const engine = createEngine({
     storage: chrome.storage.local,
     fetchImpl: (url, options) => fetch(url, options),
+    notify,
     schedule: {
         wakeAt: when => chrome.alarms.create(WAKE_ALARM, { when: Math.max(when, Date.now() + 1000) }),
         clearWake: () => chrome.alarms.clear(WAKE_ALARM),
@@ -22,8 +49,32 @@ const engine = createEngine({
     }
 });
 
+// Keeps the daily alarm in line with the setting (called on every worker start and whenever it changes).
+async function syncDailyAlarm() {
+    const { daily } = await readPrefs();
+    const existing = await chrome.alarms.get(DAILY_ALARM);
+
+    if (daily.enabled) {
+        if (!existing) {
+            await chrome.alarms.create(DAILY_ALARM, { delayInMinutes: DAILY_PERIOD_MINUTES, periodInMinutes: DAILY_PERIOD_MINUTES });
+        }
+    } else if (existing) {
+        await chrome.alarms.clear(DAILY_ALARM);
+    }
+}
+
+async function runDailyCheck() {
+    const { daily } = await readPrefs();
+    if (daily.enabled) await engine.runAuto(daily.username);
+}
+
 chrome.alarms.onAlarm.addListener(alarm => {
     if (alarm.name === WAKE_ALARM || alarm.name === WATCHDOG_ALARM) engine.ensureRunning();
+    if (alarm.name === DAILY_ALARM) runDailyCheck().catch(error => console.error('[daily] check failed', error));
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.prefs) syncDailyAlarm().catch(error => console.error('[daily] sync failed', error));
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -58,3 +109,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Runs on every worker start (install, update, browser start, alarm, message).
 engine.init().catch(error => console.error('[scan] init failed', error));
+syncDailyAlarm().catch(error => console.error('[daily] sync failed', error));

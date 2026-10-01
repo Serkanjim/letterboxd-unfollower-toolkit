@@ -805,3 +805,228 @@ test('a quick update whose baseline vanished fails clearly instead of guessing',
     assert.match(ctx.storage.data.scan.error.message, /quick update/);
     assert.equal(ctx.storage.data.scanResult, undefined);
 });
+
+// ---- Faces (display names, avatars), page badges data ----
+
+const AVATAR = id => `https://a.ltrbxd.com/resized/avatar/${id}.jpg`;
+
+test('display names and avatars are kept, merged across scans, and never block a scan', async () => {
+    const followers = names('f', 300);
+    const following = names('f', 300);
+    const faces = { f0: { name: 'Zero Fan', avatar: AVATAR('f0') }, f1: { name: 'f1' }, f2: { avatar: 'https://evil.example/x.gif' } };
+    const site = fakeLetterboxd({ followers, following, faces });
+    const ctx = makeEngine({ site });
+
+    await scanOnce(ctx);
+    assert.deepEqual(ctx.storage.data.profiles, { '@f0': ['Zero Fan', AVATAR('f0')] });   // f1: same name, f2: hostile host
+
+    // A quick rescan only reads the head, yet earlier faces survive and new ones are added.
+    followers.unshift('newbie');
+    faces.newbie = { name: 'New Person', avatar: AVATAR('new') };
+    ctx.clock.advance(3_600_000);
+    const result = await scanOnce(ctx);
+
+    assert.equal(result.scanInfo.mode, 'quick');
+    assert.deepEqual(ctx.storage.data.profiles, { '@f0': ['Zero Fan', AVATAR('f0')], '@newbie': ['New Person', AVATAR('new')] });
+    assert.equal(Object.keys(ctx.storage.data).filter(key => key.startsWith('pg:')).length, 0);
+});
+
+test('a scan still completes when the faces cannot be stored', async () => {
+    const all = names('f', 30);
+    const storage = fakeStorage();
+    const realSet = storage.set;
+    storage.set = async values => {
+        if ('profiles' in values) throw new Error('QUOTA_BYTES quota exceeded');
+        return realSet(values);
+    };
+    const site = fakeLetterboxd({ followers: all, following: [...all, 'x'], faces: { f0: { name: 'Zero', avatar: AVATAR('f0') } } });
+    const ctx = makeEngine({ storage, site });
+
+    const result = await scanOnce(ctx);
+    assert.deepEqual(result.unfollowers, ['x']);
+    assert.equal(storage.data.profiles, undefined);
+    assert.equal(storage.data.scan, undefined);
+});
+
+test('checkpoints written by the previous version (plain arrays) are still understood', async () => {
+    const followers = names('f', 200);
+    const following = [...names('f', 200), 'x'];
+    const storage = fakeStorage();
+    const clock = fakeClock();
+    let sleeps = 0;
+    const dying = makeEngine({
+        storage, clock, site: fakeLetterboxd({ followers, following }),
+        sleep: ms => (++sleeps > 3 ? new Promise(() => { }) : clock.sleep(ms))
+    });
+    await dying.engine.start('me');
+    await settle();
+
+    for (const key of Object.keys(storage.data).filter(k => k.startsWith('pg:'))) storage.data[key] = storage.data[key].u;   // downgrade
+
+    const revived = makeEngine({ storage, clock, site: fakeLetterboxd({ followers, following }) });
+    await revived.engine.init();
+    await revived.engine.whenIdle();
+    assert.deepEqual(storage.data.scanResult.unfollowers, ['x']);
+});
+
+test('the page-badge list holds lowercase names of everyone who does not follow back', async () => {
+    const ctx = makeEngine({ site: fakeLetterboxd({ followers: ['a'], following: ['a', 'Bob', 'CY'] }) });
+    const result = await scanOnce(ctx);
+    assert.deepEqual(ctx.storage.data.badgeData, { owner: 'me', at: result.completedAt, unfollowers: ['bob', 'cy'] });
+});
+
+// ---- Background (daily) checks ----
+
+async function dailyWorld({ lose = [], gain = [], following = null } = {}) {
+    const followers = names('f', 300);
+    const follows = following ?? names('f', 300);
+    const site = fakeLetterboxd({ followers, following: follows });
+    const alerts = [];
+    const storage = fakeStorage();
+    const clock = fakeClock();
+    const schedule = fakeSchedule();
+    const ctx = makeEngine({ storage, clock, schedule, site });
+    ctx.alerts = alerts;
+    const withNotify = () => makeEngine({
+        storage, clock, schedule, site,
+        notify: async summary => { alerts.push(summary); }
+    });
+    return { followers, follows, site, storage, clock, ctx, withNotify, alerts };
+}
+
+test('a background check needs a baseline and never interrupts a running scan', async () => {
+    const world = await dailyWorld();
+    const checker = world.withNotify();
+
+    assert.deepEqual(await checker.engine.runAuto('me'), { ok: false, skipped: 'no-baseline' });
+    assert.equal(world.storage.data.scan, undefined);
+    assert.deepEqual(world.site.log, []);
+
+    await scanOnce(world.ctx);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const busy = makeEngine({
+        storage: world.storage, clock: world.clock,
+        site: fakeLetterboxd({ followers: world.followers, following: world.follows, intercept: ({ type, page, call }) => (type === 'followers' && page === 1 && call === 1 ? { gate } : null) })
+    });
+    await busy.engine.start('me');
+    await settle();
+    assert.deepEqual(await checker.engine.runAuto('me'), { ok: false, skipped: 'busy' });
+    release();
+    await busy.engine.whenIdle();
+});
+
+test('a background check keeps the visible result until it has a new one, then alerts once', async () => {
+    const world = await dailyWorld();
+    const first = await scanOnce(world.ctx);
+    world.storage.data.lastUsername = 'someone-else';        // a background check must not touch this
+
+    world.followers.splice(40, 1);                           // f40 unfollows: I follow them back
+    world.followers.splice(80, 1);                           // f81 too (index shifted by the first removal)
+    world.followers.unshift('newbie');
+
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    let held = true;
+    const site = fakeLetterboxd({
+        followers: world.followers, following: world.follows,
+        intercept: ({ type, page }) => (held && type === 'following' && page === 1 ? { gate } : null)
+    });
+    const alerts = [];
+    const checker = makeEngine({ storage: world.storage, clock: world.clock, site, notify: async s => { alerts.push(s); } });
+
+    world.clock.advance(86_400_000);
+    assert.deepEqual(await checker.engine.runAuto('me'), { ok: true });
+    await settle();
+    assert.equal(world.storage.data.scan.auto, true);
+    assert.equal(world.storage.data.scanResult.scanId, first.scanId, 'the old result stays visible while the check runs');
+    assert.equal(world.storage.data.lastUsername, 'someone-else');
+
+    held = false;
+    release();
+    await checker.engine.whenIdle();
+
+    const result = world.storage.data.scanResult;
+    assert.notEqual(result.scanId, first.scanId);
+    assert.equal(world.storage.data.scan, undefined);
+    assert.equal(alerts.length, 1);
+    assert.deepEqual(alerts[0].lostNames.sort(), ['f40', 'f81']);
+    assert.deepEqual({ username: alerts[0].username, lost: alerts[0].lost, gained: alerts[0].gained, lostYouFollow: alerts[0].lostYouFollow }, { username: 'me', lost: 2, gained: 1, lostYouFollow: 2 });
+    assert.deepEqual(world.storage.data.autoCheck, { at: result.completedAt, username: 'me', ok: true, mode: 'mixed', tracking: 'ok', lost: 2, gained: 1 });
+});
+
+test('a background check that finds only new followers or nothing stays quiet', async () => {
+    const world = await dailyWorld();
+    await scanOnce(world.ctx);
+    const checker = world.withNotify();
+
+    world.followers.unshift('newbie');
+    world.clock.advance(86_400_000);
+    await checker.engine.runAuto('me');
+    await checker.engine.whenIdle();
+    assert.equal(world.storage.data.autoCheck.gained, 1);
+    assert.deepEqual(world.alerts, []);
+
+    world.clock.advance(86_400_000);
+    await checker.engine.runAuto('me');
+    await checker.engine.whenIdle();
+    assert.deepEqual(world.storage.data.autoCheck, { ...world.storage.data.autoCheck, ok: true, lost: 0, gained: 0 });
+    assert.deepEqual(world.alerts, []);
+});
+
+test('a failing background check disappears quietly and leaves the result alone', async () => {
+    const world = await dailyWorld();
+    const first = await scanOnce(world.ctx);
+    const down = fakeLetterboxd({ followers: world.followers, following: world.follows, intercept: () => ({ status: 503 }) });
+    const alerts = [];
+    const checker = makeEngine({ storage: world.storage, clock: world.clock, site: down, notify: async s => { alerts.push(s); } });
+
+    world.clock.advance(86_400_000);
+    await checker.engine.runAuto('me');
+    await checker.engine.whenIdle();
+    for (let i = 0; i < 6 && world.storage.data.scan; i++) await wake(checker, 5 * 60_000);
+
+    assert.equal(world.storage.data.scan, undefined);
+    assert.equal(world.storage.data.scanResult.scanId, first.scanId);
+    assert.equal(world.storage.data.autoCheck.ok, false);
+    assert.match(world.storage.data.autoCheck.error, /not responding/);
+    assert.deepEqual(alerts, []);
+    assert.deepEqual(pageKeys(world.storage), []);
+    assert.equal(world.ctx.schedule.watchdogOn, false);
+});
+
+test('a crash while a background check finishes does not alert twice or leave a scan behind', async () => {
+    const world = await dailyWorld();
+    await scanOnce(world.ctx);
+    world.followers.splice(10, 1);
+    const alerts = [];
+    const checker = makeEngine({ storage: world.storage, clock: world.clock, site: world.site, notify: async s => { alerts.push(s); } });
+
+    const realRemove = world.storage.remove;
+    let crashed = false;
+    world.storage.remove = async keys => {
+        if (!crashed && [].concat(keys).some(key => key.startsWith('pg:'))) { crashed = true; throw new Error('worker killed'); }
+        return realRemove(keys);
+    };
+
+    world.clock.advance(86_400_000);
+    await checker.engine.runAuto('me');
+    await checker.engine.whenIdle();
+
+    assert.equal(crashed, true);
+    assert.equal(world.storage.data.scan, undefined);                     // cleaned up, not stuck in "error"
+    assert.equal(world.storage.data.scanResult.tracking.lost, 1);          // the result was already stored
+    assert.ok(alerts.length <= 1);
+});
+
+test('clearing the history also forgets faces, page badges and background-check notes', async () => {
+    const all = names('f', 30);
+    const ctx = makeEngine({ site: fakeLetterboxd({ followers: all, following: all, faces: { f0: { name: 'Zero' } } }) });
+    await scanOnce(ctx);
+    ctx.storage.data.autoCheck = { ok: true };
+    assert.ok(ctx.storage.data.profiles && ctx.storage.data.badgeData);
+
+    await ctx.engine.clearHistory();
+    for (const key of ['snapshots', 'history', 'ignored', 'profiles', 'badgeData', 'autoCheck']) assert.equal(ctx.storage.data[key], undefined, key);
+    assert.ok(ctx.storage.data.scanResult);
+});
