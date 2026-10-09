@@ -230,13 +230,16 @@ function describeScan(state, now) {
 
     if (state.resumeAt > now) {
         const left = formatDuration((state.resumeAt - now) / 1000);
+        const cause = state.wait?.detail ? ` (${state.wait.detail})` : '';     // what Letterboxd actually answered
         switch (state.wait?.reason) {
             case 'cooldown':
                 return `☕ Taking a short break to avoid rate limits...\n⏳ ${left} remaining`;
             case 'ratelimit':
-                return `⏸️ Rate limited!\n⏳ Retrying in ${left}`;
+                return `⏸️ Rate limited${cause}!\n⏳ Retrying in ${left}`;
+            case 'blocked':
+                return `🛡️ Letterboxd showed a bot check.\n⏳ Retrying in ${left}`;
             case 'server':
-                return `⚠️ Letterboxd is not answering properly.\n⏳ Retrying in ${left}`;
+                return `⚠️ Letterboxd is not answering properly${cause}.\n⏳ Retrying in ${left}`;
             default:
                 return `📡 Connection problem.\n⏳ Retrying in ${left}`;
         }

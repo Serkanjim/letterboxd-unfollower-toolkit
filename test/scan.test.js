@@ -22,7 +22,8 @@ test('planRetry honours Retry-After, escalates, and gives up', () => {
     assert.equal(planRetry('ratelimit', 1, 0).waitMs, 5_000);
     assert.equal(planRetry('ratelimit', 3, 600_000).waitMs, 900_000);   // capped at 15 min
     assert.equal(planRetry('ratelimit', 4), null);
-    assert.equal(planRetry('blocked', 1).reason, 'ratelimit');
+    assert.equal(planRetry('blocked', 1).reason, 'blocked');
+    assert.equal(planRetry('ratelimit', 1).reason, 'ratelimit');
     assert.deepEqual(planRetry('network', 1), { reason: 'network', waitMs: 5_000 });
     assert.equal(planRetry('network', 5), null);
     assert.deepEqual(planRetry('server', 2), { reason: 'server', waitMs: 30_000 });

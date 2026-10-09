@@ -11,7 +11,7 @@ No Personal Data Collection: We do not collect, store, or transmit any personall
 
 Local Processing: All analysis (comparing followers and following lists) is performed locally on your device within your browser.
 
-Authentication: The extension does not require your Letterboxd password. It only accesses publicly available profile information to perform its core function. Requests to Letterboxd are sent without your cookies.
+Authentication: The extension does not require your Letterboxd password. It only accesses publicly available profile information to perform its core function. Its requests are made by your browser to letterboxd.com exactly as when you visit the site, so they carry your normal Letterboxd cookies (including your session if you are logged in). That is what lets Letterboxd's bot protection recognise your browser. The extension has no access to cookies (it cannot read them), does not store them, and they are only ever sent to letterboxd.com.
 
 Avatars: If "Show avatars" is on (the default), the popup loads member avatar images directly from Letterboxd's own image servers (letterboxd.com and ltrbxd.com addresses only), without sending a referrer. This is the only traffic that is not a page request, it goes to the same company as everything else, and it can be switched off in Settings.
 

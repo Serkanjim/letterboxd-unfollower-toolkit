@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fakeClock, fakeLetterboxd, fakeSchedule, fakeStorage, makeEngine, memberRow, names, wake } from './helpers.js';
+import { fakeClock, fakeLetterboxd, fakeSchedule, fakeStorage, makeEngine, memberRow, names, profileHtml, wake } from './helpers.js';
 import { verificationWarning } from '../lib/scan.js';
 
 // Lets every pending promise settle: enough for a loop that is blocked on a gate or a hung sleep.
@@ -113,7 +113,7 @@ test('a bot-protection page served with 200 is treated like a rate limit', async
 
     await ctx.engine.start('me');
     await ctx.engine.whenIdle();
-    assert.equal(ctx.storage.data.scan.wait.reason, 'ratelimit');
+    assert.equal(ctx.storage.data.scan.wait.reason, 'blocked');
 
     await wake(ctx, 301_000);
     assert.deepEqual(ctx.storage.data.scanResult.unfollowers, []);
@@ -1029,4 +1029,103 @@ test('clearing the history also forgets faces, page badges and background-check 
     await ctx.engine.clearHistory();
     for (const key of ['snapshots', 'history', 'ignored', 'profiles', 'badgeData', 'autoCheck']) assert.equal(ctx.storage.data[key], undefined, key);
     assert.ok(ctx.storage.data.scanResult);
+});
+
+// ---- Regression: "Rate limited" on the very first request of a scan ----
+// Two defects made a healthy Letterboxd look rate limited before a single page was read:
+//  1. requests were sent with credentials: 'omit'. A browser extension's default fetch carries the site's
+//     cookies (verified in Chromium), including the Cloudflare clearance cookie that lets requests through.
+//  2. any page mentioning "challenge-platform" counted as a bot check, but Cloudflare adds that script to
+//     ordinary successful pages as well.
+
+const CLOUDFLARE_JSD = `<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'8a1b2c3d4e5f6a7b',t:'MTcyMzQ1Njc4OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;document.body.appendChild(a);c()}})();</script>`;
+const CHALLENGE_PAGE = '<!DOCTYPE html><html><head><title>Just a moment...</title></head><body><div id="challenge-error-text">Enable JavaScript and cookies to continue</div><script>window._cf_chl_opt={cvId:"3"};</script><script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1?ray=1"></script></body></html>';
+
+test('requests keep the browser\'s own cookies instead of looking like a bare bot', async () => {
+    const all = names('f', 10);
+    const site = fakeLetterboxd({ followers: all, following: all });
+    const seen = [];
+    const ctx = makeEngine({ site: { ...site, fetchImpl: (url, options) => { seen.push(options); return site.fetchImpl(url, options); } } });
+
+    await scanOnce(ctx);
+
+    assert.ok(seen.length > 0);
+    assert.ok(seen.every(options => options?.credentials === 'include'), JSON.stringify(seen[0]));
+});
+
+test('ordinary Letterboxd pages are not mistaken for a bot check just because Cloudflare added its script', async () => {
+    const all = names('f', 60);
+    const profile = `<html><body>${profileHtml('me', 60, 60)}${CLOUDFLARE_JSD}</body></html>`;
+    const withScript = fakeLetterboxd({
+        followers: all, following: all, profile,
+        intercept: ({ type }) => (type === 'profile' ? null : null)
+    });
+    // member pages get the same script appended
+    const fetchWithScript = async url => {
+        const response = await withScript.fetchImpl(url);
+        if (response.status !== 200 || url.endsWith('/me/')) return response;
+        const body = (await response.text()) + CLOUDFLARE_JSD;
+        return { ...response, text: async () => body };
+    };
+    const ctx = makeEngine({ site: { ...withScript, fetchImpl: fetchWithScript } });
+
+    await ctx.engine.start('me');
+    await ctx.engine.whenIdle();
+
+    assert.equal(ctx.storage.data.scan, undefined, 'the scan ran straight through');
+    assert.deepEqual(ctx.schedule.wakes, []);
+    assert.deepEqual(ctx.storage.data.scanResult.unfollowers, []);
+    assert.equal(ctx.storage.data.scanResult.verification.ok, true);
+});
+
+test('a real bot-check page is still recognised, retried, and named as such', async () => {
+    const all = names('f', 30);
+    let challenged = true;
+    const site = fakeLetterboxd({
+        followers: all, following: all,
+        intercept: ({ type }) => (challenged && type === 'profile' ? { status: 200, body: CHALLENGE_PAGE } : null)
+    });
+    const ctx = makeEngine({ site });
+
+    await ctx.engine.start('me');
+    await ctx.engine.whenIdle();
+    assert.equal(ctx.storage.data.scan.wait.reason, 'blocked');
+    assert.equal(ctx.storage.data.scan.wait.detail, 'bot check page');
+
+    challenged = false;
+    await wake(ctx, 301_000);
+    assert.deepEqual(ctx.storage.data.scanResult.unfollowers, []);
+});
+
+test('the waiting state says what Letterboxd actually answered', async () => {
+    const all = names('f', 30);
+    const cases = [
+        [{ status: 429 }, 'ratelimit', 'HTTP 429'],
+        [{ status: 403 }, 'ratelimit', 'HTTP 403'],
+        [{ status: 503 }, 'server', 'HTTP 503'],
+        [{ throw: true }, 'network', 'no connection']
+    ];
+    for (const [answer, reason, detail] of cases) {
+        // Keeps failing, so the scan is still waiting (short waits are slept through, long ones go to an alarm).
+        const site = fakeLetterboxd({ followers: all, following: all, intercept: ({ type }) => (type === 'profile' ? answer : null) });
+        const ctx = makeEngine({ site });
+        await ctx.engine.start('me');
+        await ctx.engine.whenIdle();
+        const { wait } = ctx.storage.data.scan;
+        assert.deepEqual([wait.reason, wait.detail], [reason, detail], JSON.stringify(answer));
+    }
+});
+
+test('giving up names the cause so the user knows what to do', async () => {
+    const all = names('f', 30);
+    const site = fakeLetterboxd({ followers: all, following: all, intercept: ({ type }) => (type === 'profile' ? { status: 200, body: CHALLENGE_PAGE } : null) });
+    const ctx = makeEngine({ site });
+
+    await ctx.engine.start('me');
+    await ctx.engine.whenIdle();
+    for (let i = 0; i < 10 && ctx.storage.data.scan?.status === 'running'; i++) await wake(ctx, 20 * 60_000);
+
+    assert.equal(ctx.storage.data.scan.status, 'error');
+    assert.match(ctx.storage.data.scan.error.message, /bot check/i);
+    assert.match(ctx.storage.data.scan.error.message, /letterboxd\.com/i);
 });

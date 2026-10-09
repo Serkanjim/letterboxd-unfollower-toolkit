@@ -98,6 +98,20 @@ test('parseProfileCounts matches the username case-insensitively', () => {
 
 test('looksBlocked spots bot-protection pages', () => {
     assert.equal(looksBlocked('<html><head><title>Just a moment...</title>'), true);
-    assert.equal(looksBlocked('<script src="/cdn-cgi/challenge-platform/h/b"></script>'), true);
+    // The bare /cdn-cgi/challenge-platform/ path used to count as a challenge. It is also on normal pages, see below.
+    assert.equal(looksBlocked('<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"></script>'), true);
     assert.equal(looksBlocked('<title>Followers • Letterboxd</title>'), false);
+});
+
+test('looksBlocked ignores the script Cloudflare adds to ordinary pages, and still catches real challenges', () => {
+    const jsd = `<script>var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';</script>`;
+    assert.equal(looksBlocked(`<html><head><title>Followers • Letterboxd</title></head><body>${jsd}</body></html>`), false);
+    assert.equal(looksBlocked(`<script src="/cdn-cgi/challenge-platform/h/b/scripts/jsd/abc/main.js"></script>`), false);
+
+    assert.equal(looksBlocked('<html><head><title>Just a moment...</title></head>'), true);
+    assert.equal(looksBlocked('<html><head><title>Attention Required! | Cloudflare</title></head>'), true);
+    assert.equal(looksBlocked('<script>window._cf_chl_opt={cvId:"3"};</script>'), true);
+    assert.equal(looksBlocked('<div id="challenge-error-text">Enable JavaScript and cookies</div>'), true);
+    assert.equal(looksBlocked('<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1?ray=1"></script>'), true);
+    assert.equal(looksBlocked('<form id="challenge-form" action="/?__cf_chl_f_tk=abc">'), true);
 });
